@@ -1,0 +1,112 @@
+openapi: 3.0.0
+info:
+  title: User Activity API
+  version: "1.0.0"
+  description: |
+    Ingest batches of user activities (likes, comments, shares),
+    aggregate them in MySQL/Redis, and enqueue notifications.
+servers:
+  # Replace with your actual URL in prod/dev
+  - url: http://localhost:3000/api/v1
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Activity:
+      type: object
+      properties:
+        activityId:
+          type: string
+          format: uuid
+        userId:
+          type: integer
+        type:
+          type: string
+          enum: [likes, comments, shares]
+        timestamp:
+          type: string
+          format: date-time
+      required: [activityId, userId, type, timestamp]
+
+    ActivityBatch:
+      type: object
+      properties:
+        activities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Activity'
+      required: [activities]
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: string
+
+paths:
+  /user-activity:
+    post:
+      tags: [Activities]
+      summary: Submit a batch of user activities
+      description: >
+        Validates, deduplicates, aggregates, writes to DB/Redis, and enqueues notifications.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          description: Unique key to dedupe retries
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivityBatch'
+      responses:
+        '200':
+          description: Number of activities processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  processed:
+                    type: integer
+        '400':
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid authorization
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many requests (rate limit)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
